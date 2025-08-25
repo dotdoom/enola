@@ -57,7 +57,7 @@ jobs:
   build:
     # https://github.com/orgs/community/discussions/25722
     if:
-      (github.repository == 'enola-dev/enola') &&
+      #(github.repository == 'enola-dev/enola') &&
       (github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     steps:
