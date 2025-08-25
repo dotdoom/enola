@@ -70,7 +70,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: cachix/install-nix-action@v31
       - uses: nicknovitski/nix-develop@v1
-        # TODO: remove non-nix paths from PATH
+      - run: 'echo PATH=/non-existent-path > "$GITHUB_ENV"'
 
       - name: Check which package versions we are using
         run: |
