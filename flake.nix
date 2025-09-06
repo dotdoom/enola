@@ -22,6 +22,7 @@
       nixpkgs-bun,
       flake-utils,
       deadnix,
+      bazel-flake,
       ...
     }:
     flake-utils.lib.eachDefaultSystem (
@@ -63,6 +64,18 @@
         # NB: This doesn't actually use tools/version/version-out.bash (like the non-Nix build does)
         gitRev = toString (self.shortRev or self.dirtyShortRev or self.lastModified or "DEVELOPMENT");
 
+        originalBazel = pkgs.bazel_8; #bazel-flake.packages.${system}.bazel;
+
+        # `buildBazelPackage` expects to call `.override` on the `bazel` attribute.
+        # We construct a new attribute set that contains the final derivation's attributes
+        # and adds a custom `override` function.
+        bazelForBuildBazelPackage = originalBazel // {
+          # This override function is called by `buildBazelPackage` with arguments
+          # like `{ enableNixHacks = true; }`.
+          # It ignores the arguments and simply returns the original derivation.
+          # This satisfies the interface required by `buildBazelPackage`.
+          override = args: originalBazel;
+        };
       in
       {
         # TODO: for https://nix-bazel.build, replace with mkShellNoCC.
@@ -93,35 +106,66 @@
           # $ nix build .#enola
           # $ result/bin/enola --help
           default = enola;
-          enola = pkgs.stdenv.mkDerivation {
+          enola = pkgs.buildBazelPackage {
             pname = "enola";
             version = gitRev;
 
+            bazelTargets = [ "//java/dev/enola/cli:enola_deploy.jar" ];
+            # bazelFetchFlags = [ "--all" ];
+            fetchAttrs = {
+              preBuild = ''
+                echo $bazelOut
+                mkdir -p $bazelOut/external/cache
+              '';
+              sha256 = "sha256-ZWjHxMv3IHdWO9+rhn03WQmfmewtV1PEqGkpckaUcyU=";
+              # Some Python stuff...
+              preInstall = ''
+                chmod -R u+w $bazelOut
+              '';
+            };
+
+            src = ./.;
+
+            bazel = bazelForBuildBazelPackage;
+
+            removeRulesCC = false;
+            removeLocalConfigCc = false;
+            removeLocalConfigSh = false;
+            removeLocal = false;
+
+            bazelFlags = [ "--distdir=/build/output/external/cache" ];
+            fetchConfigured = false;
+
+            bazelBuildFlags = [
+              "--verbose_failures"
+              "--nofetch"
+            ];
+            #passthru = {
+            #  exePath = "/bin/enola";
+            #};
+>>>>>>> 8d4ece30 (Does not work)
+
             buildInputs = [ jdk' ];
             nativeBuildInputs = buildTools ++ [
-              pkgs.cacert
+              #  pkgs.cacert
               pkgs.makeWrapper
               pkgs.which
             ];
-            src = ./.;
 
-            buildPhase = ''
-              # class dev.enola.common.Version reads VERSION
-              echo -n "${gitRev}" >tools/version/VERSION
-
-              # See https://github.com/NixOS/nix/issues/14024
-              bash tools/protoc/protoc.bash
-
-              export HOME=$TMPDIR
-              bazel build //java/dev/enola/cli:enola_deploy.jar
-            '';
-
-            installPhase = ''
-              mkdir -p "$out/share/java"
-              cp bazel-bin/java/dev/enola/cli/enola_deploy.jar "$out/share/java"
-              makeWrapper ${jdk'}/bin/java $out/bin/enola \
-                --add-flags "-jar $out/share/java/enola_deploy.jar"
-            '';
+            buildAttrs = {
+              #preBuild = ''
+              #  ${bazelForBuildBazelPackage}/bin/bazel info
+              #  ${bazelForBuildBazelPackage}/bin/bazel build --host_platform=@bazel_tools//platforms:host_platform --platforms=@bazel_tools//platforms:host_platform --distdir=/build/output/external/cache --nofetch //java/dev/enola/cli:enola_deploy.jar
+              #  exit 22
+              #'';
+              installPhase = ''
+                mkdir -p "$out/share/java"
+                #find $bazelOut
+                cp $bazelOut/java/dev/enola/cli/enola_deploy.jar "$out/share/java"
+                makeWrapper ${jdk'}/bin/java $out/bin/enola \
+                  --add-flags "-jar $out/share/java/enola_deploy.jar"
+              '';
+            };
           };
         };
 
