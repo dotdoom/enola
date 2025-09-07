@@ -13,6 +13,8 @@
 
     deadnix.url = "github:astro/deadnix";
     deadnix.inputs.nixpkgs.follows = "nixpkgs";
+    #bazel-flake.url = "github:timothyklim/bazel-flake";
+    #nixpkgs-bazel.url = "github:boltzmannrain/nixpkgs/ebf9d4445d9e916239caa8d12a510e94a6d58a2f" # bazel==8.4.0
   };
 
   outputs =
@@ -22,7 +24,7 @@
       nixpkgs-bun,
       flake-utils,
       deadnix,
-      bazel-flake,
+      #bazel-flake,
       ...
     }:
     flake-utils.lib.eachDefaultSystem (
@@ -76,6 +78,14 @@
           # This satisfies the interface required by `buildBazelPackage`.
           override = args: originalBazel;
         };
+
+        BCR = pkgs.fetchFromGitHub {
+          owner = "bazelbuild";
+          repo = "bazel-central-registry";
+          rev = "4fcc47180cfe24915dae5705074c3994c60dc6b7";
+          hash = "sha256-Th7gamXEzJnoA65VKVfARCDnLup5URJT0R1g2Jw3S/0=";
+        };
+
       in
       {
         # TODO: for https://nix-bazel.build, replace with mkShellNoCC.
@@ -110,18 +120,31 @@
             pname = "enola";
             version = gitRev;
 
-            bazelTargets = [ "//java/dev/enola/cli:enola_deploy.jar" ];
-            # bazelFetchFlags = [ "--all" ];
-            fetchAttrs = {
-              preBuild = ''
-                echo $bazelOut
-                mkdir -p $bazelOut/external/cache
+            deps = pkgs.stdenv.mkDerivation {
+              pname = "enola-deps";
+              version = "0.0.17";
+              nativeBuildInputs = [
+                bazelForBuildBazelPackage
+                pkgs.cacert
+                jdk'
+                pkgs.git
+                pkgs.python3
+              ];
+              src = ./.;
+
+              buildPhase = ''
+                export HOME="$NIX_BUILD_TOP"
+                mkdir -p /build/output/cache
+                ${bazelForBuildBazelPackage}/bin/bazel --batch fetch --repository_cache=/build/output/cache //java/dev/enola/cli:enola_deploy.jar //...
               '';
-              sha256 = "sha256-ZWjHxMv3IHdWO9+rhn03WQmfmewtV1PEqGkpckaUcyU=";
-              # Some Python stuff...
-              preInstall = ''
-                chmod -R u+w $bazelOut
+              installPhase = ''
+                cd $NIX_BUILD_TOP && tar czf $out --sort=name --mtime='UTC 2080-02-01' --owner=0 --group=0 --numeric-owner .
               '';
+
+              dontFixup = true;
+
+              outputHashAlgo = "sha256";
+              outputHash = "sha256-hPGN2YGb64kC2wnSLkxmGsLpUbGWTsL2bjnYj10Tjvg=";
             };
 
             src = ./.;
@@ -143,29 +166,34 @@
             #passthru = {
             #  exePath = "/bin/enola";
             #};
->>>>>>> 8d4ece30 (Does not work)
-
             buildInputs = [ jdk' ];
             nativeBuildInputs = buildTools ++ [
               #  pkgs.cacert
               pkgs.makeWrapper
               pkgs.which
+              jdk'
             ];
 
-            buildAttrs = {
-              #preBuild = ''
-              #  ${bazelForBuildBazelPackage}/bin/bazel info
-              #  ${bazelForBuildBazelPackage}/bin/bazel build --host_platform=@bazel_tools//platforms:host_platform --platforms=@bazel_tools//platforms:host_platform --distdir=/build/output/external/cache --nofetch //java/dev/enola/cli:enola_deploy.jar
-              #  exit 22
-              #'';
-              installPhase = ''
-                mkdir -p "$out/share/java"
-                #find $bazelOut
-                cp $bazelOut/java/dev/enola/cli/enola_deploy.jar "$out/share/java"
-                makeWrapper ${jdk'}/bin/java $out/bin/enola \
-                  --add-flags "-jar $out/share/java/enola_deploy.jar"
-              '';
-            };
+            buildPhase = ''
+              export HOME="$NIX_BUILD_TOP"
+              ( cd "$NIX_BUILD_TOP" && tar xfz $deps )
+              ${bazelForBuildBazelPackage}/bin/bazel --batch build --nofetch --repository_cache=/build/output/cache --registry=file://${BCR} //java/dev/enola/cli:enola_deploy.jar
+            '';
+
+            #buildAttrs = {
+            #preBuild = ''
+            #  ${bazelForBuildBazelPackage}/bin/bazel info
+            #  ${bazelForBuildBazelPackage}/bin/bazel build --host_platform=@bazel_tools//platforms:host_platform --platforms=@bazel_tools//platforms:host_platform --distdir=/build/output/external/cache --nofetch //java/dev/enola/cli:enola_deploy.jar
+            #  exit 22
+            #'';
+            installPhase = ''
+              mkdir -p "$out/share/java"
+              #find $bazelOut
+              cp $bazelOut/java/dev/enola/cli/enola_deploy.jar "$out/share/java"
+              makeWrapper ${jdk'}/bin/java $out/bin/enola \
+                --add-flags "-jar $out/share/java/enola_deploy.jar"
+            '';
+            #};
           };
         };
 
