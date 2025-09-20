@@ -25,6 +25,7 @@
       flake-utils,
       deadnix,
       #bazel-flake,
+      #nixpkgs-bazel,
       ...
     }:
     flake-utils.lib.eachDefaultSystem (
@@ -32,6 +33,7 @@
       let
         pkgs = import nixpkgs { inherit system; };
         pkgs-bun = import nixpkgs-bun { inherit system; };
+        #pkgs-bazel = import nixpkgs-bazel { inherit system; };
         jdk' = pkgs.jdk21;
         buildTools = with pkgs; [
           # https://github.com/NixOS/nixfmt/issues/335
@@ -67,6 +69,7 @@
         gitRev = toString (self.shortRev or self.dirtyShortRev or self.lastModified or "DEVELOPMENT");
 
         originalBazel = pkgs.bazel_8; #bazel-flake.packages.${system}.bazel;
+        #originalBazel = pkgs-bazel.bazel_8;
 
         # `buildBazelPackage` expects to call `.override` on the `bazel` attribute.
         # We construct a new attribute set that contains the final derivation's attributes
@@ -120,9 +123,9 @@
             pname = "enola";
             version = gitRev;
 
-            deps = pkgs.stdenv.mkDerivation {
+            /*deps = pkgs.stdenv.mkDerivation {
               pname = "enola-deps";
-              version = "0.0.17";
+              version = "0.0.18";
               nativeBuildInputs = [
                 bazelForBuildBazelPackage
                 pkgs.cacert
@@ -135,7 +138,7 @@
               buildPhase = ''
                 export HOME="$NIX_BUILD_TOP"
                 mkdir -p /build/output/cache
-                ${bazelForBuildBazelPackage}/bin/bazel --batch fetch --repository_cache=/build/output/cache //java/dev/enola/cli:enola_deploy.jar //...
+                ${bazelForBuildBazelPackage}/bin/bazel --batch fetch --repository_cache=/build/output/cache --registry=file://${BCR} //java/dev/enola/cli:enola_deploy.jar //...
               '';
               installPhase = ''
                 cd $NIX_BUILD_TOP && tar czf $out --sort=name --mtime='UTC 2080-02-01' --owner=0 --group=0 --numeric-owner .
@@ -144,8 +147,8 @@
               dontFixup = true;
 
               outputHashAlgo = "sha256";
-              outputHash = "sha256-hPGN2YGb64kC2wnSLkxmGsLpUbGWTsL2bjnYj10Tjvg=";
-            };
+              outputHash = "sha256-18cqctIMdElRg7XavVSMcXOpLg54iCdMfI6gLzurz+4=";
+            };*/
 
             src = ./.;
 
@@ -156,31 +159,42 @@
             removeLocalConfigSh = false;
             removeLocal = false;
 
-            bazelFlags = [ "--distdir=/build/output/external/cache" ];
-            fetchConfigured = false;
+            fetchConfigured = false; # == use "bazel fetch" rather than "build --no-build"
+            # https://github.com/NixOS/nixpkgs/blob/8f23292ad129fc89ab9ebcf915ab3a6d36eceec2/pkgs/build-support/build-bazel-package/default.nix#L162
 
-            bazelBuildFlags = [
-              "--verbose_failures"
-              "--nofetch"
+            fetchAttrs = {
+              sha256 = "sha256-ZWjHxMv3IHdWO9+rhn03WQmfmewtV1PEqGkpckaUcyU=";
+              nativeBuildInputs = [ jdk' ];
+            };
+
+            bazelTargets = [
+            "//java/dev/enola/cli:enola_deploy.jar"
             ];
+
+            #bazelFlags = [ "--distdir=/build/output/external/cache" ];
+
+            #bazelBuildFlags = [
+            #  "--verbose_failures"
+            #  "--nofetch"
+            #];
             #passthru = {
             #  exePath = "/bin/enola";
             #};
-            buildInputs = [ jdk' ];
-            nativeBuildInputs = buildTools ++ [
-              #  pkgs.cacert
-              pkgs.makeWrapper
-              pkgs.which
-              jdk'
-            ];
+            #buildInputs = [ jdk' ];
+            #nativeBuildInputs = buildTools ++ [
+            #  #  pkgs.cacert
+            #  pkgs.makeWrapper
+            #  pkgs.which
+            #  jdk'
+            #];
 
-            buildPhase = ''
-              export HOME="$NIX_BUILD_TOP"
-              ( cd "$NIX_BUILD_TOP" && tar xfz $deps )
-              ${bazelForBuildBazelPackage}/bin/bazel --batch build --nofetch --repository_cache=/build/output/cache --registry=file://${BCR} //java/dev/enola/cli:enola_deploy.jar
-            '';
+            #buildPhase = ''
+            #  export HOME="$NIX_BUILD_TOP"
+            #  ( cd "$NIX_BUILD_TOP" && tar xfz $deps )
+            #  ${bazelForBuildBazelPackage}/bin/bazel --batch build --nofetch --repository_cache=/build/output/cache --registry=file://${BCR} //java/dev/enola/cli:enola_deploy.jar
+            #'';
 
-            #buildAttrs = {
+            buildAttrs = {
             #preBuild = ''
             #  ${bazelForBuildBazelPackage}/bin/bazel info
             #  ${bazelForBuildBazelPackage}/bin/bazel build --host_platform=@bazel_tools//platforms:host_platform --platforms=@bazel_tools//platforms:host_platform --distdir=/build/output/external/cache --nofetch //java/dev/enola/cli:enola_deploy.jar
@@ -193,7 +207,7 @@
               makeWrapper ${jdk'}/bin/java $out/bin/enola \
                 --add-flags "-jar $out/share/java/enola_deploy.jar"
             '';
-            #};
+            };
           };
         };
 
